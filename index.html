@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twitch chat</title>
+    <script src="https://cdn.jsdelivr.net/npm/comfy.js@latest/dist/comfy.min.js"></script>
+    <link rel="stylesheet" href="./style.css">
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+</head>
+
+<body>
+    <div id="chat">
+        <ul></ul>
+    </div>
+    <script type="module">
+
+        import TWITCH_CONFIG from './config.js'
+
+        AOS.init({
+        duration: 800,
+        offset: 10,
+        once: false,
+        mirror: true
+    });
+
+        const chat = document.querySelector("#chat>ul")
+
+
+        const BADGE_DEFINITIONS = {
+
+        }
+
+
+        function createBadge(id, alt) {
+            const badgeImg = document.createElement("img")
+            badgeImg.src = `https://static-cdn.jtvnw.net/badges/v1/${id}/1`
+            badgeImg.classList.add("chat-badge")
+            badgeImg.alt = alt
+            return badgeImg
+        }
+
+
+        ComfyJS.onChat = (user, message, flags, self, extra) => {
+            console.log('received:', { user, message, extra })
+
+            const newMessage = document.createElement("li")
+            const badgeContainer = document.createElement("span")
+            badgeContainer.classList.add("badges")
+
+            if (extra?.userBadges) {
+                Object.entries(extra.userBadges).forEach(([type, version]) => {
+                    if (BADGE_DEFINITIONS[type]) {
+                        badgeContainer.appendChild(
+                            createBadge(BADGE_DEFINITIONS[type].id, BADGE_DEFINITIONS[type].alt)
+                        )
+                    }
+                })
+            }
+
+            if (extra.userColor) {
+        // Set custom property for the border color
+        newMessage.style.setProperty('--user-color', extra.userColor);
+    }
+
+            if (badgeContainer.children.length > 0) {
+                newMessage.appendChild(badgeContainer)
+            }
+
+
+            const username = document.createElement("span")
+            username.classList.add("username")
+            username.innerText = user
+            newMessage.appendChild(username)
+
+            const text = document.createElement("blockquote")
+
+            if (extra.messageEmotes) {
+                let textContent = message
+                let emotePositions = []
+
+                Object.entries(extra.messageEmotes).forEach(([id, positions]) => {
+                    positions.forEach(position => {
+                        const [start, end] = position.split('-').map(Number)
+                        emotePositions.push({ start, end, id })
+                    })
+                })
+
+
+                emotePositions.sort((a, b) => b.start - a.start)
+
+
+                emotePositions.forEach(({ start, end, id }) => {
+                    const emoteUrl = `https://static-cdn.jtvnw.net/emoticons/v2/${id}/default/dark/1.0`
+                    const emoteImg = document.createElement('img')
+                    emoteImg.src = emoteUrl
+                    emoteImg.alt = message.substring(start, end + 1)
+                    emoteImg.classList.add('chat-emote')
+
+                    const beforeText = textContent.substring(0, start)
+                    const afterText = textContent.substring(end + 1)
+                    textContent = beforeText + emoteImg.outerHTML + afterText
+                })
+
+                text.innerHTML = textContent
+            } else {
+                text.textContent = message
+            }
+
+            newMessage.appendChild(text)
+            chat.appendChild(newMessage)
+        }
+
+        async function getAccessToken() {
+            try {
+                const response = await fetch(`https://id.twitch.tv/oauth2/token`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `client_id=${TWITCH_CONFIG.clientId}&client_secret=${TWITCH_CONFIG.clientSecret}&grant_type=client_credentials`
+                })
+                const data = await response.json()
+                return data.access_token
+            } catch (error) {
+                console.error("Errok token: ", error)
+            }
+        }
+        async function fetchBadges() {
+            try {
+                const accessToken = await getAccessToken()
+
+                const response = await fetch('https://api.twitch.tv/helix/chat/badges/global', {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Client-Id': TWITCH_CONFIG.clientId
+                    }
+                })
+
+                const data = await response.json()
+                console.log('badge data:', data)
+
+                data.data.forEach(badgeSet => {
+                    badgeSet.versions.forEach(version => {
+                        const badgeId = version.image_url_1x.split('/')[5]
+                        BADGE_DEFINITIONS[badgeSet.set_id] = {
+                            id: badgeId,
+                            alt: version.title
+                        }
+                    })
+                })
+
+            } catch (error) {
+                console.error('Error badges:', error)
+            }
+        }
+        async function init() {
+            try {
+                await fetchBadges()
+                await ComfyJS.Init("szoppanto")
+            } catch (error) {
+                console.error('Error init:', error)
+            }
+        }
+
+
+        init()
+
+    </script>
+</body>
+
+</html>
